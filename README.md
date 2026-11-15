@@ -39,7 +39,7 @@ Each folder has a short README with that member's tasks from the team plan.
 
 ## Deploy 
 
-AWS account setup and the one-time laptop setup are in [docs/account-setup.md](docs/account-setup.md). After merging changes:
+
 
 ```bash
 aws login
