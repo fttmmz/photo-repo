@@ -34,10 +34,10 @@ Each folder has a short README with that member's tasks from the team plan.
 
 1. **Branch per task:** `git checkout -b m3/api-routes` (your member number + topic).
 2. Add your resources to **your section** of `template.yaml` and your code to **your folder**.
-3. Push and open a **pull request**. Member 1 reviews, merges and deploys.
+3. Push and open a **pull request**.  merges and deploys.
 4. Never commit passwords, access keys or `.env` files.
 
-## Deploy (Member 1)
+## Deploy 
 
 AWS account setup and the one-time laptop setup are in [docs/account-setup.md](docs/account-setup.md). After merging changes:
 
@@ -53,5 +53,5 @@ The end-to-end test plan is in [docs/e2e-test-checklist.md](docs/e2e-test-checkl
 
 ## Status
 
-- Architecture, repository structure, deployment script and AWS account: done (Member 1).
-- Each member's resources and code: in progress.
+- Architecture, repository structure, deployment script and AWS account: done .
+
