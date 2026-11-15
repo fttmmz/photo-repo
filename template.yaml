@@ -1,0 +1,50 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Cloud Photo Repository. Shared infrastructure-as-code template (AWS SAM / CloudFormation).
+  Member 1 owns this file's structure; each member adds their own resources in their section below.
+
+# HOW TO USE THIS FILE
+# - Each member adds the resources for their part in their own section, on a GitHub branch,
+#   and opens a pull request. Member 1 reviews and merges, then deploys with scripts/deploy.sh.
+# - Name resources with the stack name so nothing clashes, for example: !Sub '${AWS::StackName}-photos'
+# - Stack name: lowercase, 15 characters or fewer (we use "photo-repo"). Region: eu-north-1 (Stockholm).
+# - Check the architecture diagram (docs/architecture-aws.png) so the pieces fit together.
+
+# Parameters:   # add parameters here if your resources need input (for example an alert email)
+
+Resources:
+  # Placeholder so the template is valid while it is empty. It creates nothing and costs nothing.
+  # Member 1 removes it once the first real resource is merged.
+  PlaceholderResource:
+    Type: AWS::CloudFormation::WaitConditionHandle
+
+  # ------------------------------------------------------------------
+  # Member 2: Frontend and content delivery
+  #   S3 static hosting bucket for the web UI, CloudFront distribution with HTTPS
+  # ------------------------------------------------------------------
+
+  # ------------------------------------------------------------------
+  # Member 3: Backend and API
+  #   API Gateway routes (upload URL, list, get, delete, search), API Lambda functions,
+  #   request validation, throttling
+  # ------------------------------------------------------------------
+
+  # ------------------------------------------------------------------
+  # Member 4: Storage, database and image processing
+  #   S3 photo bucket (presigned URLs, versioning, lifecycle rules), DynamoDB table,
+  #   resize Lambda triggered by S3 uploads, optional Rekognition tagging
+  # ------------------------------------------------------------------
+
+  # ------------------------------------------------------------------
+  # Member 5: Security and networking
+  #   Cognito user pool and auth flow, least-privilege IAM role per Lambda,
+  #   private bucket policies, CloudFront Origin Access Control, optional WAF / VPC endpoints
+  # ------------------------------------------------------------------
+
+  # ------------------------------------------------------------------
+  # Member 6: Monitoring, testing and cost
+  #   CloudWatch logs, metrics, dashboard, alarms (Lambda errors, API 5xx), SNS alerts, billing alarm
+  # ------------------------------------------------------------------
+
+# Outputs:   # add outputs other members need (API URL, bucket names, user pool IDs) in your section's style

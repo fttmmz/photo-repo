@@ -1,0 +1,10 @@
+# Replace each placeholder with that member's GitHub username. Owners are asked to review changes to their area.
+*                       @member1-github
+/template.yaml          @member1-github
+/docs/                  @member1-github
+/scripts/               @member1-github
+/frontend/              @member2-github
+/backend/               @member3-github
+/storage-processing/    @member4-github
+/security/              @member5-github
+/monitoring/            @member6-github
