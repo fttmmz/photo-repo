@@ -2,7 +2,7 @@
 
 A serverless photo library on AWS. Signed-in users upload, browse, search and delete their own photos. Photos are stored in Amazon S3, an AWS Lambda function creates thumbnails, and Amazon DynamoDB stores each photo's details. Cloud Computing course project.
 
-![Architecture](docs/architecture-aws .png)
+![Architecture](docs/architecture-aws.png)
 
 ## Team and ownership
 
