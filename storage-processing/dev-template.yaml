@@ -80,7 +80,7 @@ Resources:
     Properties:
       CodeUri: resize/
       Handler: app.handler
-      Runtime: python3.12
+      Runtime: python3.13
       Timeout: 60
       MemorySize: 1024
       Tracing: Active
