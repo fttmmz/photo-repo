@@ -1,0 +1,113 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Member 4 personal test stack - photo buckets, table, DLQ and resize function only
+
+Parameters:
+  AppName:       {Type: String, Default: pr-m4, AllowedPattern: "^[a-z0-9-]{3,20}$"}
+  EnableTagging: {Type: String, Default: "false", AllowedValues: ["true", "false"]}
+  AllowedOrigin: {Type: String, Default: "*"}
+
+Resources:
+  PhotoBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AppName}-photos-${AWS::AccountId}-${AWS::Region}"
+      VersioningConfiguration: {Status: Enabled}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins: [!Ref AllowedOrigin]
+            AllowedMethods: [GET, POST]
+            AllowedHeaders: ["*"]
+            MaxAge: 3000
+      LifecycleConfiguration:
+        Rules:
+          - Id: keep-deleted-versions-30-days
+            Status: Enabled
+            NoncurrentVersionExpiration: {NoncurrentDays: 30}
+            ExpiredObjectDeleteMarker: true
+          - Id: clean-incomplete-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload: {DaysAfterInitiation: 1}
+
+  ThumbBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AppName}-thumbs-${AWS::AccountId}-${AWS::Region}"
+      VersioningConfiguration: {Status: Enabled}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      LifecycleConfiguration:
+        Rules:
+          - Id: keep-deleted-versions-30-days
+            Status: Enabled
+            NoncurrentVersionExpiration: {NoncurrentDays: 30}
+            ExpiredObjectDeleteMarker: true
+
+  PhotosTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${AppName}-photos"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: userId, AttributeType: S}
+        - {AttributeName: photoId, AttributeType: S}
+      KeySchema:
+        - {AttributeName: userId, KeyType: HASH}
+        - {AttributeName: photoId, KeyType: RANGE}
+      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: true}
+
+  ResizeDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+
+  ResizeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: resize/
+      Handler: app.handler
+      Runtime: python3.12
+      Timeout: 60
+      MemorySize: 1024
+      Tracing: Active
+      DeadLetterQueue: {Type: SQS, TargetArn: !GetAtt ResizeDLQ.Arn}
+      Environment:
+        Variables:
+          TABLE_NAME: !Sub "${AppName}-photos"
+          THUMB_BUCKET_NAME: !Sub "${AppName}-thumbs-${AWS::AccountId}-${AWS::Region}"
+          ENABLE_TAGGING: !Ref EnableTagging
+      Policies:
+        - S3CrudPolicy: {BucketName: !Sub "${AppName}-photos-${AWS::AccountId}-${AWS::Region}"}
+        - S3CrudPolicy: {BucketName: !Sub "${AppName}-thumbs-${AWS::AccountId}-${AWS::Region}"}
+        - DynamoDBCrudPolicy: {TableName: !Sub "${AppName}-photos"}
+        - RekognitionDetectOnlyPolicy: {}
+      Events:
+        OriginalUploaded:
+          Type: S3
+          Properties:
+            Bucket: !Ref PhotoBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules: [{Name: prefix, Value: originals/}]
+
+Outputs:
+  PhotoBucketName:    {Value: !Ref PhotoBucket}
+  ThumbBucketName:    {Value: !Ref ThumbBucket}
+  TableName:          {Value: !Ref PhotosTable}
+  ResizeFunctionName: {Value: !Ref ResizeFunction}
+  ResizeDLQUrl:       {Value: !Ref ResizeDLQ}
