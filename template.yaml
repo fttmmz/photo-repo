@@ -116,7 +116,7 @@ Resources:
   ResizeFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: storage-processing/resize/.
+      CodeUri: storage-processing/resize/
       Handler: app.handler
       Runtime: python3.12
       Timeout: 60
