@@ -11,7 +11,18 @@ Description: >
 # - Stack name: lowercase, 15 characters or fewer (we use "photo-repo"). Region: eu-north-1 (Stockholm).
 # - Check the architecture diagram (docs/architecture-aws.png) so the pieces fit together.
 
-# Parameters:   # add parameters here if your resources need input (for example an alert email)
+Parameters:
+  AppName:
+    Type: String
+    Default: photo-repo
+    AllowedPattern: "^[a-z0-9-]{3,20}$"
+  EnableTagging:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+  AllowedOrigin:
+    Type: String
+    Default: "*"
 
 Resources:
   # Placeholder so the template is valid while it is empty. It creates nothing and costs nothing.
@@ -35,6 +46,102 @@ Resources:
   #   S3 photo bucket (presigned URLs, versioning, lifecycle rules), DynamoDB table,
   #   resize Lambda triggered by S3 uploads, optional Rekognition tagging
   # ------------------------------------------------------------------
+  PhotoBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AppName}-photos-${AWS::AccountId}-${AWS::Region}"
+      VersioningConfiguration: {Status: Enabled}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins: [!Ref AllowedOrigin]
+            AllowedMethods: [GET, POST]
+            AllowedHeaders: ["*"]
+            MaxAge: 3000
+      LifecycleConfiguration:
+        Rules:
+          - Id: keep-deleted-versions-30-days
+            Status: Enabled
+            NoncurrentVersionExpiration: {NoncurrentDays: 30}
+            ExpiredObjectDeleteMarker: true
+          - Id: clean-incomplete-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload: {DaysAfterInitiation: 1}
+
+  ThumbBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AppName}-thumbs-${AWS::AccountId}-${AWS::Region}"
+      VersioningConfiguration: {Status: Enabled}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      LifecycleConfiguration:
+        Rules:
+          - Id: keep-deleted-versions-30-days
+            Status: Enabled
+            NoncurrentVersionExpiration: {NoncurrentDays: 30}
+            ExpiredObjectDeleteMarker: true
+
+  PhotosTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${AppName}-photos"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: userId, AttributeType: S}
+        - {AttributeName: photoId, AttributeType: S}
+      KeySchema:
+        - {AttributeName: userId, KeyType: HASH}
+        - {AttributeName: photoId, KeyType: RANGE}
+      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: true}
+
+  ResizeDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+
+  ResizeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: storage-processing/resize/.
+      Handler: app.handler
+      Runtime: python3.12
+      Timeout: 60
+      MemorySize: 1024
+      Tracing: Active
+      DeadLetterQueue: {Type: SQS, TargetArn: !GetAtt ResizeDLQ.Arn}
+      Environment:
+        Variables:
+          TABLE_NAME: !Sub "${AppName}-photos"
+          THUMB_BUCKET_NAME: !Sub "${AppName}-thumbs-${AWS::AccountId}-${AWS::Region}"
+          ENABLE_TAGGING: !Ref EnableTagging
+      Policies:
+        - S3CrudPolicy: {BucketName: !Sub "${AppName}-photos-${AWS::AccountId}-${AWS::Region}"}
+        - S3CrudPolicy: {BucketName: !Sub "${AppName}-thumbs-${AWS::AccountId}-${AWS::Region}"}
+        - DynamoDBCrudPolicy: {TableName: !Sub "${AppName}-photos"}
+        - RekognitionDetectOnlyPolicy: {}
+      Events:
+        OriginalUploaded:
+          Type: S3
+          Properties:
+            Bucket: !Ref PhotoBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules: [{Name: prefix, Value: originals/}]
 
   # ------------------------------------------------------------------
   # Member 5: Security and networking
@@ -47,4 +154,5 @@ Resources:
   #   CloudWatch logs, metrics, dashboard, alarms (Lambda errors, API 5xx), SNS alerts, billing alarm
   # ------------------------------------------------------------------
 
-# Outputs:   # add outputs other members need (API URL, bucket names, user pool IDs) in your section's style
+ Outputs:
+  ThumbBucketName: {Value: !Ref ThumbBucket}
