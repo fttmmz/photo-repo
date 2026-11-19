@@ -154,5 +154,5 @@ Resources:
   #   CloudWatch logs, metrics, dashboard, alarms (Lambda errors, API 5xx), SNS alerts, billing alarm
   # ------------------------------------------------------------------
 
-Outputs:
-  ThumbBucketName: {Value: !Ref ThumbBucket}
+  Outputs:
+    ThumbBucketName: {Value: !Ref ThumbBucket}
