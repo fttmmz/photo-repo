@@ -1,0 +1,11 @@
+## Frontend and Hosting Implementation (Member 2)
+
+The frontend provides a responsive browser interface for the serverless photo repository. It includes account creation, email confirmation, sign-in and sign-out through Amazon Cognito. After authentication, users can upload JPEG and PNG images, browse their own photo gallery, search by filename or tag, open a full-size image and delete a photo.
+
+The browser communicates with the backend through the API Gateway endpoint. Authenticated API requests include the Cognito ID token. For uploads, the browser first requests a short-lived presigned S3 upload URL from the backend and then transfers the image directly to the photo S3 bucket using an HTTP PUT request. This avoids sending image bytes through API Gateway or Lambda. The gallery is designed to display thumbnail URLs returned by the backend, while full-size viewing uses a presigned download URL. The proposed client-side upload limit is 10 MB for JPEG and PNG files; the backend must enforce the same validation independently.
+
+For content delivery, the static frontend is stored in a private Amazon S3 bucket. Amazon CloudFront retrieves the website files using Origin Access Control (OAC), so the S3 bucket does not need public access. The CloudFront distribution redirects HTTP requests to HTTPS. This separates website hosting from the private bucket used for original photos and generated thumbnails.
+
+The frontend configuration requires the Cognito User Pool ID and App Client ID from the security work, and the API Gateway base URL and agreed endpoint/response format from the backend work. The photo bucket must also allow browser uploads from the CloudFront origin through a narrowly scoped CORS configuration. The implementation is deployed by synchronizing the frontend files to the web UI S3 bucket and invalidating the CloudFront cache after updates.
+
+**Implementation evidence to add after deployment:** screenshot of the sign-in page; screenshot of the authenticated gallery; successful upload and full-size viewing; successful search and delete; S3 web bucket public-access-block settings; CloudFront distribution showing HTTPS redirect and OAC; and the live HTTPS website URL.
