@@ -40,6 +40,211 @@ Resources:
   #   API Gateway routes (upload URL, list, get, delete, search), API Lambda functions,
   #   request validation, throttling
   # ------------------------------------------------------------------
+  PhotoApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "${AppName}-api"
+      StageName: prod
+      EndpointConfiguration: REGIONAL
+      Cors:
+        AllowMethods: "'GET,POST,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization'"
+        AllowOrigin: !Sub "'${AllowedOrigin}'"
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        AddDefaultAuthorizerToCorsPreflight: false
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt UserPool.Arn   # Member 5's user pool
+      GatewayResponses:
+        DEFAULT_4XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: !Sub "'${AllowedOrigin}'"
+              Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+        DEFAULT_5XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: !Sub "'${AllowedOrigin}'"
+              Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+      MethodSettings:
+        - ResourcePath: "/*"
+          HttpMethod: "*"
+          ThrottlingRateLimit: 20
+          ThrottlingBurstLimit: 40
+      Models:
+        UploadUrlRequest:
+          type: object
+          required: [fileName, contentType, fileSize]
+          properties:
+            fileName: {type: string, minLength: 1, maxLength: 200}
+            contentType: {type: string, enum: [image/jpeg, image/png]}
+            fileSize: {type: integer, minimum: 1, maximum: 10485760}
+            title: {type: string, maxLength: 100}
+            description: {type: string, maxLength: 500}
+            tags: {type: array, maxItems: 10, items: {type: string, minLength: 1, maxLength: 30}}
+
+  UploadUrlFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/
+      Handler: upload_url.lambda_handler
+      Runtime: python3.13
+      MemorySize: 256
+      Timeout: 10
+      Environment:
+        Variables:
+          PHOTOS_BUCKET: !Ref PhotoBucket
+          THUMBS_BUCKET: !Ref ThumbBucket
+          TABLE_NAME: !Ref PhotosTable
+          ALLOWED_ORIGIN: !Ref AllowedOrigin
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: dynamodb:PutItem
+              Resource: !GetAtt PhotosTable.Arn
+            - Effect: Allow
+              Action: s3:PutObject
+              Resource: !Sub "${PhotoBucket.Arn}/originals/*"
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref PhotoApi
+            Path: /photos/upload-url
+            Method: post
+            RequestModel:
+              Model: UploadUrlRequest
+              Required: true
+              ValidateBody: true
+
+  ListPhotosFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/
+      Handler: list_photos.lambda_handler
+      Runtime: python3.13
+      MemorySize: 256
+      Timeout: 10
+      Environment:
+        Variables:
+          PHOTOS_BUCKET: !Ref PhotoBucket
+          THUMBS_BUCKET: !Ref ThumbBucket
+          TABLE_NAME: !Ref PhotosTable
+          ALLOWED_ORIGIN: !Ref AllowedOrigin
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: dynamodb:Query
+              Resource: !GetAtt PhotosTable.Arn
+            - Effect: Allow
+              Action: s3:GetObject
+              Resource: !Sub "${ThumbBucket.Arn}/thumb/*"
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref PhotoApi
+            Path: /photos
+            Method: get
+
+  GetPhotoFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/
+      Handler: get_photo.lambda_handler
+      Runtime: python3.13
+      MemorySize: 256
+      Timeout: 10
+      Environment:
+        Variables:
+          PHOTOS_BUCKET: !Ref PhotoBucket
+          THUMBS_BUCKET: !Ref ThumbBucket
+          TABLE_NAME: !Ref PhotosTable
+          ALLOWED_ORIGIN: !Ref AllowedOrigin
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: dynamodb:GetItem
+              Resource: !GetAtt PhotosTable.Arn
+            - Effect: Allow
+              Action: s3:GetObject
+              Resource:
+                - !Sub "${PhotoBucket.Arn}/originals/*"
+                - !Sub "${ThumbBucket.Arn}/thumb/*"
+                - !Sub "${ThumbBucket.Arn}/medium/*"
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref PhotoApi
+            Path: /photos/{photoId}
+            Method: get
+
+  SearchPhotosFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/
+      Handler: search_photos.lambda_handler
+      Runtime: python3.13
+      MemorySize: 256
+      Timeout: 10
+      Environment:
+        Variables:
+          PHOTOS_BUCKET: !Ref PhotoBucket
+          THUMBS_BUCKET: !Ref ThumbBucket
+          TABLE_NAME: !Ref PhotosTable
+          ALLOWED_ORIGIN: !Ref AllowedOrigin
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: dynamodb:Query
+              Resource: !GetAtt PhotosTable.Arn
+            - Effect: Allow
+              Action: s3:GetObject
+              Resource: !Sub "${ThumbBucket.Arn}/thumb/*"
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref PhotoApi
+            Path: /photos/search
+            Method: get
+
+  DeletePhotoFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/
+      Handler: delete_photo.lambda_handler
+      Runtime: python3.13
+      MemorySize: 256
+      Timeout: 10
+      Environment:
+        Variables:
+          PHOTOS_BUCKET: !Ref PhotoBucket
+          THUMBS_BUCKET: !Ref ThumbBucket
+          TABLE_NAME: !Ref PhotosTable
+          ALLOWED_ORIGIN: !Ref AllowedOrigin
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:DeleteItem
+              Resource: !GetAtt PhotosTable.Arn
+            - Effect: Allow
+              Action: s3:DeleteObject
+              Resource:
+                - !Sub "${PhotoBucket.Arn}/originals/*"
+                - !Sub "${ThumbBucket.Arn}/thumb/*"
+                - !Sub "${ThumbBucket.Arn}/medium/*"
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref PhotoApi
+            Path: /photos/{photoId}
+            Method: delete
 
   # ------------------------------------------------------------------
   # Member 4: Storage, database and image processing
@@ -156,3 +361,4 @@ Resources:
 
 Outputs:
   ThumbBucketName: {Value: !Ref ThumbBucket}
+  ApiUrl: {Value: !Sub "https://${PhotoApi}.execute-api.${AWS::Region}.amazonaws.com/prod"}
