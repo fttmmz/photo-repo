@@ -229,7 +229,7 @@ Resources:
 
 Outputs:
   ThumbBucketName: {Value: !Ref ThumbBucket}
-    WebUiBucketName:
+  WebUiBucketName:
     Value: !Ref WebUiBucket
   WebUiDistributionId:
     Value: !Ref WebUiDistribution
