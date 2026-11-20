@@ -92,20 +92,14 @@ Resources:
       Runtime: python3.13
       MemorySize: 256
       Timeout: 10
+      Tracing: Active
+      Role: !GetAtt UploadFunctionRole.Arn   # least-privilege role from Member 5
       Environment:
         Variables:
           PHOTOS_BUCKET: !Ref PhotoBucket
           THUMBS_BUCKET: !Ref ThumbBucket
           TABLE_NAME: !Ref PhotosTable
           ALLOWED_ORIGIN: !Ref AllowedOrigin
-      Policies:
-        - Statement:
-            - Effect: Allow
-              Action: dynamodb:PutItem
-              Resource: !GetAtt PhotosTable.Arn
-            - Effect: Allow
-              Action: s3:PutObject
-              Resource: !Sub "${PhotoBucket.Arn}/originals/*"
       Events:
         Api:
           Type: Api
@@ -126,20 +120,14 @@ Resources:
       Runtime: python3.13
       MemorySize: 256
       Timeout: 10
+      Tracing: Active
+      Role: !GetAtt ListFunctionRole.Arn
       Environment:
         Variables:
           PHOTOS_BUCKET: !Ref PhotoBucket
           THUMBS_BUCKET: !Ref ThumbBucket
           TABLE_NAME: !Ref PhotosTable
           ALLOWED_ORIGIN: !Ref AllowedOrigin
-      Policies:
-        - Statement:
-            - Effect: Allow
-              Action: dynamodb:Query
-              Resource: !GetAtt PhotosTable.Arn
-            - Effect: Allow
-              Action: s3:GetObject
-              Resource: !Sub "${ThumbBucket.Arn}/thumb/*"
       Events:
         Api:
           Type: Api
@@ -156,23 +144,14 @@ Resources:
       Runtime: python3.13
       MemorySize: 256
       Timeout: 10
+      Tracing: Active
+      Role: !GetAtt GetFunctionRole.Arn
       Environment:
         Variables:
           PHOTOS_BUCKET: !Ref PhotoBucket
           THUMBS_BUCKET: !Ref ThumbBucket
           TABLE_NAME: !Ref PhotosTable
           ALLOWED_ORIGIN: !Ref AllowedOrigin
-      Policies:
-        - Statement:
-            - Effect: Allow
-              Action: dynamodb:GetItem
-              Resource: !GetAtt PhotosTable.Arn
-            - Effect: Allow
-              Action: s3:GetObject
-              Resource:
-                - !Sub "${PhotoBucket.Arn}/originals/*"
-                - !Sub "${ThumbBucket.Arn}/thumb/*"
-                - !Sub "${ThumbBucket.Arn}/medium/*"
       Events:
         Api:
           Type: Api
@@ -189,20 +168,14 @@ Resources:
       Runtime: python3.13
       MemorySize: 256
       Timeout: 10
+      Tracing: Active
+      Role: !GetAtt SearchFunctionRole.Arn
       Environment:
         Variables:
           PHOTOS_BUCKET: !Ref PhotoBucket
           THUMBS_BUCKET: !Ref ThumbBucket
           TABLE_NAME: !Ref PhotosTable
           ALLOWED_ORIGIN: !Ref AllowedOrigin
-      Policies:
-        - Statement:
-            - Effect: Allow
-              Action: dynamodb:Query
-              Resource: !GetAtt PhotosTable.Arn
-            - Effect: Allow
-              Action: s3:GetObject
-              Resource: !Sub "${ThumbBucket.Arn}/thumb/*"
       Events:
         Api:
           Type: Api
@@ -219,25 +192,14 @@ Resources:
       Runtime: python3.13
       MemorySize: 256
       Timeout: 10
+      Tracing: Active
+      Role: !GetAtt DeleteFunctionRole.Arn
       Environment:
         Variables:
           PHOTOS_BUCKET: !Ref PhotoBucket
           THUMBS_BUCKET: !Ref ThumbBucket
           TABLE_NAME: !Ref PhotosTable
           ALLOWED_ORIGIN: !Ref AllowedOrigin
-      Policies:
-        - Statement:
-            - Effect: Allow
-              Action:
-                - dynamodb:GetItem
-                - dynamodb:DeleteItem
-              Resource: !GetAtt PhotosTable.Arn
-            - Effect: Allow
-              Action: s3:DeleteObject
-              Resource:
-                - !Sub "${PhotoBucket.Arn}/originals/*"
-                - !Sub "${ThumbBucket.Arn}/thumb/*"
-                - !Sub "${ThumbBucket.Arn}/medium/*"
       Events:
         Api:
           Type: Api
