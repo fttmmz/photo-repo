@@ -38,9 +38,26 @@ if ! aws s3api head-bucket --bucket "$ARTIFACTS" 2>/dev/null; then
   fi
 fi
 
+# Build: copy the template and code into .build/, then install each Lambda's requirements.txt
+# next to its code (Linux wheels for the Lambda runtime). The source folders are not changed.
+PYTHON="$(command -v python || command -v python3)"
+rm -rf .build
+mkdir -p .build
+cp template.yaml .build/
+for d in */; do
+  case "$d" in docs/|scripts/) continue ;; esac
+  cp -r "$d" .build/
+done
+find .build -name requirements.txt -not -path "*/tests/*" | while read -r req; do
+  echo "Installing $(dirname "${req#.build/}") dependencies"
+  PIP_USER=0 "$PYTHON" -m pip install -r "$req" --target "$(dirname "$req")" \
+    --platform manylinux2014_x86_64 --implementation cp --python-version 3.13 \
+    --only-binary=:all: --upgrade --quiet --disable-pip-version-check
+done
+
 # Package any local Lambda code and deploy the stack
 aws cloudformation package \
-  --template-file template.yaml \
+  --template-file .build/template.yaml \
   --s3-bucket "$ARTIFACTS" \
   --output-template-file .packaged.yaml \
   --region "$REGION" > /dev/null
