@@ -48,6 +48,8 @@ Resources:
   # ------------------------------------------------------------------
   PhotoBucket:
     Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       BucketName: !Sub "${AppName}-photos-${AWS::AccountId}-${AWS::Region}"
       VersioningConfiguration: {Status: Enabled}
@@ -95,11 +97,14 @@ Resources:
             NoncurrentVersionExpiration: {NoncurrentDays: 30}
             ExpiredObjectDeleteMarker: true
 
-  PhotosTable:
+    PhotosTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub "${AppName}-photos"
       BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
       AttributeDefinitions:
         - {AttributeName: userId, AttributeType: S}
         - {AttributeName: photoId, AttributeType: S}
