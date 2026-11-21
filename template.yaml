@@ -67,6 +67,15 @@ Resources:
             Headers:
               Access-Control-Allow-Origin: !Sub "'${AllowedOrigin}'"
               Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+        # The upload model rejects bad bodies before the Lambda runs, so explain the rules here (E2E-10)
+        BAD_REQUEST_BODY:
+          StatusCode: 400
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: !Sub "'${AllowedOrigin}'"
+              Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+          ResponseTemplates:
+            application/json: '{"error": {"code": "INVALID_UPLOAD_REQUEST", "message": "Only JPEG or PNG images up to 10 MB can be uploaded. Send fileName, contentType (image/jpeg or image/png) and fileSize in bytes."}}'
       MethodSettings:
         - ResourcePath: "/*"
           HttpMethod: "*"
@@ -215,6 +224,8 @@ Resources:
   # ------------------------------------------------------------------
   PhotoBucket:
     Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       BucketName: !Sub "${AppName}-photos-${AWS::AccountId}-${AWS::Region}"
       VersioningConfiguration: {Status: Enabled}
@@ -241,6 +252,11 @@ Resources:
           - Id: clean-incomplete-uploads
             Status: Enabled
             AbortIncompleteMultipartUpload: {DaysAfterInitiation: 1}
+          - Id: originals-to-infrequent-access
+            Status: Enabled
+            Prefix: originals/
+            Transitions:
+              - {StorageClass: STANDARD_IA, TransitionInDays: 30}
 
   ThumbBucket:
     Type: AWS::S3::Bucket
@@ -264,9 +280,12 @@ Resources:
 
   PhotosTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub "${AppName}-photos"
       BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
       AttributeDefinitions:
         - {AttributeName: userId, AttributeType: S}
         - {AttributeName: photoId, AttributeType: S}

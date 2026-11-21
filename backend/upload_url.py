@@ -1,6 +1,6 @@
 import json, uuid
 from datetime import datetime, timezone
-from common import (s3, table, PHOTOS_BUCKET, KEY_PREFIX, UPLOAD_URL_TTL,
+from common import (s3, table, PHOTOS_BUCKET, KEY_PREFIX, UPLOAD_URL_TTL, USER_TAGS_ATTR,
                     respond, error, server_error, get_user_id)
 
 ALLOWED_TYPES = {"image/jpeg": "jpg", "image/png": "png"}
@@ -53,12 +53,17 @@ def lambda_handler(event, context):
         key = f"{KEY_PREFIX}{user_id}/{photo_id}.{ALLOWED_TYPES[content_type]}"
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        table.put_item(Item={
-            "userId": user_id, "photoId": photo_id,
-            "title": title, "titleLower": title.lower(), "description": description,
-            "tags": tags, "contentType": content_type, "size": size,
-            "originalKey": key, "status": "PENDING", "createdAt": now,
-        })
+        # The record is written before the upload link is handed out, so the resize
+        # function always finds it. User tags go in userTags: the resize step writes "tags".
+        table.put_item(
+            Item={
+                "userId": user_id, "photoId": photo_id,
+                "title": title, "titleLower": title.lower(), "description": description,
+                USER_TAGS_ATTR: tags, "contentType": content_type, "size": size,
+                "originalKey": key, "status": "PENDING", "createdAt": now,
+            },
+            ConditionExpression="attribute_not_exists(photoId)",
+        )
 
         # Presigned POST: S3 itself enforces the content type and the 10 MB limit
         post = s3.generate_presigned_post(
