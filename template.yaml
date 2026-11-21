@@ -23,13 +23,22 @@ Parameters:
   AllowedOrigin:
     Type: String
     Default: "*"
+  # Member 5 (security)
+  EnableWaf:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+  WafRateLimit:
+    Type: Number
+    Default: 1000
+    MinValue: 10
+
+Conditions:
+  # Member 5 (security)
+  TaggingEnabled: !Equals [!Ref EnableTagging, "true"]
+  WafEnabled: !Equals [!Ref EnableWaf, "true"]
 
 Resources:
-  # Placeholder so the template is valid while it is empty. It creates nothing and costs nothing.
-  # Member 1 removes it once the first real resource is merged.
-  PlaceholderResource:
-    Type: AWS::CloudFormation::WaitConditionHandle
-
   # ------------------------------------------------------------------
   # Member 2: Frontend and content delivery
   #   S3 static hosting bucket for the web UI, CloudFront distribution with HTTPS
@@ -40,6 +49,182 @@ Resources:
   #   API Gateway routes (upload URL, list, get, delete, search), API Lambda functions,
   #   request validation, throttling
   # ------------------------------------------------------------------
+  PhotoApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "${AppName}-api"
+      StageName: prod
+      EndpointConfiguration: REGIONAL
+      Cors:
+        AllowMethods: "'GET,POST,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization'"
+        AllowOrigin: !Sub "'${AllowedOrigin}'"
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        AddDefaultAuthorizerToCorsPreflight: false
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt UserPool.Arn   # Member 5's user pool
+      GatewayResponses:
+        DEFAULT_4XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: !Sub "'${AllowedOrigin}'"
+              Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+        DEFAULT_5XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: !Sub "'${AllowedOrigin}'"
+              Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+        # The upload model rejects bad bodies before the Lambda runs, so explain the rules here (E2E-10)
+        BAD_REQUEST_BODY:
+          StatusCode: 400
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: !Sub "'${AllowedOrigin}'"
+              Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+          ResponseTemplates:
+            application/json: '{"error": {"code": "INVALID_UPLOAD_REQUEST", "message": "Only JPEG or PNG images up to 10 MB can be uploaded. Send fileName, contentType (image/jpeg or image/png) and fileSize in bytes."}}'
+      MethodSettings:
+        - ResourcePath: "/*"
+          HttpMethod: "*"
+          ThrottlingRateLimit: 20
+          ThrottlingBurstLimit: 40
+      Models:
+        UploadUrlRequest:
+          type: object
+          required: [fileName, contentType, fileSize]
+          properties:
+            fileName: {type: string, minLength: 1, maxLength: 200}
+            contentType: {type: string, enum: [image/jpeg, image/png]}
+            fileSize: {type: integer, minimum: 1, maximum: 10485760}
+            title: {type: string, maxLength: 100}
+            description: {type: string, maxLength: 500}
+            tags: {type: array, maxItems: 10, items: {type: string, minLength: 1, maxLength: 30}}
+
+  UploadUrlFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/
+      Handler: upload_url.lambda_handler
+      Runtime: python3.13
+      MemorySize: 256
+      Timeout: 10
+      Tracing: Active
+      Role: !GetAtt UploadFunctionRole.Arn   # least-privilege role from Member 5
+      Environment:
+        Variables:
+          PHOTOS_BUCKET: !Ref PhotoBucket
+          THUMBS_BUCKET: !Ref ThumbBucket
+          TABLE_NAME: !Ref PhotosTable
+          ALLOWED_ORIGIN: !Ref AllowedOrigin
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref PhotoApi
+            Path: /photos/upload-url
+            Method: post
+            RequestModel:
+              Model: UploadUrlRequest
+              Required: true
+              ValidateBody: true
+
+  ListPhotosFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/
+      Handler: list_photos.lambda_handler
+      Runtime: python3.13
+      MemorySize: 256
+      Timeout: 10
+      Tracing: Active
+      Role: !GetAtt ListFunctionRole.Arn
+      Environment:
+        Variables:
+          PHOTOS_BUCKET: !Ref PhotoBucket
+          THUMBS_BUCKET: !Ref ThumbBucket
+          TABLE_NAME: !Ref PhotosTable
+          ALLOWED_ORIGIN: !Ref AllowedOrigin
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref PhotoApi
+            Path: /photos
+            Method: get
+
+  GetPhotoFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/
+      Handler: get_photo.lambda_handler
+      Runtime: python3.13
+      MemorySize: 256
+      Timeout: 10
+      Tracing: Active
+      Role: !GetAtt GetFunctionRole.Arn
+      Environment:
+        Variables:
+          PHOTOS_BUCKET: !Ref PhotoBucket
+          THUMBS_BUCKET: !Ref ThumbBucket
+          TABLE_NAME: !Ref PhotosTable
+          ALLOWED_ORIGIN: !Ref AllowedOrigin
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref PhotoApi
+            Path: /photos/{photoId}
+            Method: get
+
+  SearchPhotosFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/
+      Handler: search_photos.lambda_handler
+      Runtime: python3.13
+      MemorySize: 256
+      Timeout: 10
+      Tracing: Active
+      Role: !GetAtt SearchFunctionRole.Arn
+      Environment:
+        Variables:
+          PHOTOS_BUCKET: !Ref PhotoBucket
+          THUMBS_BUCKET: !Ref ThumbBucket
+          TABLE_NAME: !Ref PhotosTable
+          ALLOWED_ORIGIN: !Ref AllowedOrigin
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref PhotoApi
+            Path: /photos/search
+            Method: get
+
+  DeletePhotoFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/
+      Handler: delete_photo.lambda_handler
+      Runtime: python3.13
+      MemorySize: 256
+      Timeout: 10
+      Tracing: Active
+      Role: !GetAtt DeleteFunctionRole.Arn
+      Environment:
+        Variables:
+          PHOTOS_BUCKET: !Ref PhotoBucket
+          THUMBS_BUCKET: !Ref ThumbBucket
+          TABLE_NAME: !Ref PhotosTable
+          ALLOWED_ORIGIN: !Ref AllowedOrigin
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref PhotoApi
+            Path: /photos/{photoId}
+            Method: delete
 
   # ------------------------------------------------------------------
   # Member 4: Storage, database and image processing
@@ -67,7 +252,7 @@ Resources:
             AllowedMethods: [GET, POST]
             AllowedHeaders: ["*"]
             MaxAge: 3000
-           LifecycleConfiguration:
+      LifecycleConfiguration:
         Rules:
           - Id: keep-deleted-versions-30-days
             Status: Enabled
@@ -102,7 +287,7 @@ Resources:
             NoncurrentVersionExpiration: {NoncurrentDays: 30}
             ExpiredObjectDeleteMarker: true
 
-    PhotosTable:
+  PhotosTable:
     Type: AWS::DynamoDB::Table
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
@@ -138,11 +323,7 @@ Resources:
           TABLE_NAME: !Sub "${AppName}-photos"
           THUMB_BUCKET_NAME: !Sub "${AppName}-thumbs-${AWS::AccountId}-${AWS::Region}"
           ENABLE_TAGGING: !Ref EnableTagging
-      Policies:
-        - S3CrudPolicy: {BucketName: !Sub "${AppName}-photos-${AWS::AccountId}-${AWS::Region}"}
-        - S3CrudPolicy: {BucketName: !Sub "${AppName}-thumbs-${AWS::AccountId}-${AWS::Region}"}
-        - DynamoDBCrudPolicy: {TableName: !Sub "${AppName}-photos"}
-        - RekognitionDetectOnlyPolicy: {}
+      Role: !GetAtt ResizeFunctionRole.Arn   # least-privilege role from Member 5
       Events:
         OriginalUploaded:
           Type: S3
@@ -158,6 +339,351 @@ Resources:
   #   Cognito user pool and auth flow, least-privilege IAM role per Lambda,
   #   private bucket policies, CloudFront Origin Access Control, optional WAF / VPC endpoints
   # ------------------------------------------------------------------
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "${AppName}-users"
+      UsernameAttributes: [email]
+      UsernameConfiguration: {CaseSensitive: false}
+      AutoVerifiedAttributes: [email]
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 10
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          TemporaryPasswordValidityDays: 3
+      MfaConfiguration: "OPTIONAL"
+      EnabledMfas: [SOFTWARE_TOKEN_MFA]
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - {Name: verified_email, Priority: 1}
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+      VerificationMessageTemplate:
+        DefaultEmailOption: CONFIRM_WITH_CODE
+        EmailSubject: Your Photo Repository verification code
+        EmailMessage: "Your Photo Repository verification code is {####}"
+      Schema:
+        - {Name: email, AttributeDataType: String, Required: true, Mutable: true}
+      DeletionProtection: INACTIVE
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub "${AppName}-web"
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows: [ALLOW_USER_SRP_AUTH, ALLOW_REFRESH_TOKEN_AUTH]
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      RefreshTokenValidity: 7
+      TokenValidityUnits: {AccessToken: minutes, IdToken: minutes, RefreshToken: days}
+      ReadAttributes: [email, email_verified]
+      WriteAttributes: [email]
+      SupportedIdentityProviders: [COGNITO]
+
+  LambdaObservabilityPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Lets a Lambda write its own CloudWatch logs and X-Ray traces, nothing else
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: WriteOwnLogs
+            Effect: Allow
+            Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+            Resource:
+              - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}-*"
+              - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}-*:*"
+              - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AppName}-*"
+              - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AppName}-*:*"
+          - Sid: WriteXRayTraces
+            Effect: Allow
+            Action: [xray:PutTraceSegments, xray:PutTelemetryRecords]
+            Resource: "*"
+
+  ResizeFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Resize Lambda - reads originals, writes renditions, updates the photo record
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns: [!Ref LambdaObservabilityPolicy]
+      Policies:
+        - PolicyName: least-privilege
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadAndRemoveOriginals
+                Effect: Allow
+                Action: [s3:GetObject, s3:DeleteObject]
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${AppName}-photos-${AWS::AccountId}-${AWS::Region}/originals/*"
+              - Sid: WriteRenditions
+                Effect: Allow
+                Action: [s3:PutObject, s3:DeleteObject]
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::${AppName}-thumbs-${AWS::AccountId}-${AWS::Region}/medium/*"
+                  - !Sub "arn:${AWS::Partition}:s3:::${AppName}-thumbs-${AWS::AccountId}-${AWS::Region}/thumb/*"
+              - Sid: UpdatePhotoRecord
+                Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:UpdateItem]
+                Resource: !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AppName}-photos"
+              - Sid: SendFailedEventsToDlq
+                Effect: Allow
+                Action: [sqs:SendMessage]
+                Resource: !GetAtt ResizeDLQ.Arn
+              - !If
+                - TaggingEnabled
+                - Sid: DetectLabels
+                  Effect: Allow
+                  Action: [rekognition:DetectLabels]
+                  Resource: "*"
+                - !Ref AWS::NoValue
+
+  UploadFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: API Lambda - issue upload URL and create the PENDING photo record
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns: [!Ref LambdaObservabilityPolicy]
+      Policies:
+        - PolicyName: least-privilege
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: PresignUploadToOriginals
+                Effect: Allow
+                Action: [s3:PutObject]
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${AppName}-photos-${AWS::AccountId}-${AWS::Region}/originals/*"
+              - Sid: CreatePhotoRecord
+                Effect: Allow
+                Action: [dynamodb:PutItem]
+                Resource: !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AppName}-photos"
+
+  ListFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: API Lambda - list a user's photos and sign thumbnail links (read only)
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns: [!Ref LambdaObservabilityPolicy]
+      Policies:
+        - PolicyName: least-privilege
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: QueryOwnPhotos
+                Effect: Allow
+                Action: [dynamodb:Query]
+                Resource: !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AppName}-photos"
+              - Sid: SignThumbnailLinks
+                Effect: Allow
+                Action: [s3:GetObject]
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${AppName}-thumbs-${AWS::AccountId}-${AWS::Region}/thumb/*"
+
+  SearchFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: API Lambda - search a user's photos and sign thumbnail links (read only)
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns: [!Ref LambdaObservabilityPolicy]
+      Policies:
+        - PolicyName: least-privilege
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: QueryOwnPhotos
+                Effect: Allow
+                Action: [dynamodb:Query]
+                Resource: !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AppName}-photos"
+              - Sid: SignThumbnailLinks
+                Effect: Allow
+                Action: [s3:GetObject]
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${AppName}-thumbs-${AWS::AccountId}-${AWS::Region}/thumb/*"
+
+  GetFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: API Lambda - return one photo and sign time-limited links (read only)
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns: [!Ref LambdaObservabilityPolicy]
+      Policies:
+        - PolicyName: least-privilege
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadPhotoRecord
+                Effect: Allow
+                Action: [dynamodb:GetItem]
+                Resource: !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AppName}-photos"
+              - Sid: SignOriginalLink
+                Effect: Allow
+                Action: [s3:GetObject]
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${AppName}-photos-${AWS::AccountId}-${AWS::Region}/originals/*"
+              - Sid: SignMediumLink
+                Effect: Allow
+                Action: [s3:GetObject]
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${AppName}-thumbs-${AWS::AccountId}-${AWS::Region}/medium/*"
+
+  DeleteFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: API Lambda - delete a photo, its renditions and its record
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns: [!Ref LambdaObservabilityPolicy]
+      Policies:
+        - PolicyName: least-privilege
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadAndDeletePhotoRecord
+                Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:DeleteItem]
+                Resource: !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AppName}-photos"
+              - Sid: DeleteOriginal
+                Effect: Allow
+                Action: [s3:DeleteObject]
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${AppName}-photos-${AWS::AccountId}-${AWS::Region}/originals/*"
+              - Sid: DeleteRenditions
+                Effect: Allow
+                Action: [s3:DeleteObject]
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::${AppName}-thumbs-${AWS::AccountId}-${AWS::Region}/medium/*"
+                  - !Sub "arn:${AWS::Partition}:s3:::${AppName}-thumbs-${AWS::AccountId}-${AWS::Region}/thumb/*"
+
+  PhotoBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PhotoBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource: [!GetAtt PhotoBucket.Arn, !Sub "${PhotoBucket.Arn}/*"]
+            Condition: {Bool: {"aws:SecureTransport": "false"}}
+          - Sid: DenyTlsOlderThan12
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource: [!GetAtt PhotoBucket.Arn, !Sub "${PhotoBucket.Arn}/*"]
+            Condition: {NumericLessThan: {"s3:TlsVersion": "1.2"}}
+          - Sid: DenyWritesOutsideOriginals
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:PutObject"
+            NotResource: !Sub "${PhotoBucket.Arn}/originals/*"
+
+  ThumbBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ThumbBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource: [!GetAtt ThumbBucket.Arn, !Sub "${ThumbBucket.Arn}/*"]
+            Condition: {Bool: {"aws:SecureTransport": "false"}}
+          - Sid: DenyTlsOlderThan12
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource: [!GetAtt ThumbBucket.Arn, !Sub "${ThumbBucket.Arn}/*"]
+            Condition: {NumericLessThan: {"s3:TlsVersion": "1.2"}}
+          - Sid: DenyWritesOutsideRenditions
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:PutObject"
+            NotResource:
+              - !Sub "${ThumbBucket.Arn}/medium/*"
+              - !Sub "${ThumbBucket.Arn}/thumb/*"
+
+  CloudFrontOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${AppName}-web-oac"
+        Description: Lets only CloudFront read the private web UI bucket
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  SecurityHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub "${AppName}-security-headers"
+        Comment: HSTS, no MIME sniffing, no framing, strict referrer policy
+        SecurityHeadersConfig:
+          StrictTransportSecurity: {AccessControlMaxAgeSec: 31536000, IncludeSubdomains: true, Override: true}
+          ContentTypeOptions: {Override: true}
+          FrameOptions: {FrameOption: DENY, Override: true}
+          ReferrerPolicy: {ReferrerPolicy: strict-origin-when-cross-origin, Override: true}
+
+  ApiWebAcl:
+    Type: AWS::WAFv2::WebACL
+    Condition: WafEnabled
+    Properties:
+      Name: !Sub "${AppName}-api-acl"
+      Scope: REGIONAL
+      DefaultAction: {Allow: {}}
+      VisibilityConfig: {SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: !Sub "${AppName}-api-acl"}
+      Rules:
+        - Name: RateLimitPerIp
+          Priority: 0
+          Action: {Block: {}}
+          Statement:
+            RateBasedStatement: {Limit: !Ref WafRateLimit, AggregateKeyType: IP}
+          VisibilityConfig: {SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: RateLimitPerIp}
+        - Name: AWSManagedRulesCommonRuleSet
+          Priority: 1
+          OverrideAction: {None: {}}
+          Statement:
+            ManagedRuleGroupStatement: {VendorName: AWS, Name: AWSManagedRulesCommonRuleSet}
+          VisibilityConfig: {SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: CommonRuleSet}
+        - Name: AWSManagedRulesKnownBadInputsRuleSet
+          Priority: 2
+          OverrideAction: {None: {}}
+          Statement:
+            ManagedRuleGroupStatement: {VendorName: AWS, Name: AWSManagedRulesKnownBadInputsRuleSet}
+          VisibilityConfig: {SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: KnownBadInputs}
 
   # ------------------------------------------------------------------
   # Member 6: Monitoring, testing and cost
@@ -166,3 +692,15 @@ Resources:
 
 Outputs:
   ThumbBucketName: {Value: !Ref ThumbBucket}
+  ApiUrl: {Value: !Sub "https://${PhotoApi}.execute-api.${AWS::Region}.amazonaws.com/prod"}
+  # Member 5 (security)
+  UserPoolId:           {Value: !Ref UserPool}
+  UserPoolClientId:     {Value: !Ref UserPoolClient}
+  UserPoolArn:          {Value: !GetAtt UserPool.Arn}
+  CognitoRegion:        {Value: !Ref "AWS::Region"}
+  CognitoIssuer:        {Value: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"}
+  CloudFrontOacId:      {Value: !GetAtt CloudFrontOAC.Id}
+  SecurityHeadersPolicyId: {Value: !Ref SecurityHeadersPolicy}
+  ApiWebAclArn:
+    Condition: WafEnabled
+    Value: !GetAtt ApiWebAcl.Arn
