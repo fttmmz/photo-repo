@@ -67,7 +67,7 @@ Resources:
             AllowedMethods: [GET, POST]
             AllowedHeaders: ["*"]
             MaxAge: 3000
-      LifecycleConfiguration:
+           LifecycleConfiguration:
         Rules:
           - Id: keep-deleted-versions-30-days
             Status: Enabled
@@ -76,6 +76,11 @@ Resources:
           - Id: clean-incomplete-uploads
             Status: Enabled
             AbortIncompleteMultipartUpload: {DaysAfterInitiation: 1}
+          - Id: originals-to-infrequent-access
+            Status: Enabled
+            Prefix: originals/
+            Transitions:
+              - {StorageClass: STANDARD_IA, TransitionInDays: 30}
 
   ThumbBucket:
     Type: AWS::S3::Bucket
