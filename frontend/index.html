@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Private serverless photo repository">
+  <title>Cloud Frame — Photo Repository</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="https://unpkg.com/amazon-cognito-identity-js@6.3.15/dist/amazon-cognito-identity.min.js"></script>
+  <script src="config.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="#"><span class="brand-mark">F</span><span>Cloud Frame</span></a>
+      <div class="top-actions"><span id="user-label" class="user-label"></span><button id="signout-btn" class="button button-quiet hidden">Sign out</button></div>
+    </header>
+    <main>
+      <section id="auth-view" class="auth-layout">
+        <div class="auth-copy">
+          <p class="eyebrow">YOUR PHOTOS, IN ONE PLACE</p>
+          <h1>Keep the moments<br><em>that matter.</em></h1>
+          <p class="lead">A private, simple home for your photo collection. Upload, find and revisit your memories from anywhere.</p>
+          <div class="feature-line"><span>✦</span> Private by design <span>✦</span> Fast image gallery <span>✦</span> Secure cloud storage</div>
+        </div>
+        <div class="auth-card">
+          <div class="auth-tabs"><button class="tab active" data-tab="signin">Sign in</button><button class="tab" data-tab="signup">Create account</button></div>
+          <form id="signin-form" class="auth-form">
+            <h2>Welcome back</h2><p class="muted">Sign in to access your photo library.</p>
+            <label>Email address<input id="signin-email" type="email" autocomplete="username" required placeholder="you@example.com"></label>
+            <label>Password<input id="signin-password" type="password" autocomplete="current-password" required placeholder="Your password"></label>
+            <button class="button button-primary full" type="submit">Sign in <span>→</span></button>
+          </form>
+          <form id="signup-form" class="auth-form hidden">
+            <h2>Create your account</h2><p class="muted">Start building your private collection.</p>
+            <label>Email address<input id="signup-email" type="email" autocomplete="email" required placeholder="you@example.com"></label>
+            <label>Password<input id="signup-password" type="password" autocomplete="new-password" minlength="8" required placeholder="At least 8 characters"></label>
+            <button class="button button-primary full" type="submit">Create account <span>→</span></button>
+          </form>
+          <form id="confirm-form" class="auth-form hidden">
+            <h2>Check your inbox</h2><p class="muted">Enter the confirmation code sent to your email.</p>
+            <label>Confirmation code<input id="confirm-code" required inputmode="numeric" placeholder="123456"></label>
+            <button class="button button-primary full" type="submit">Confirm email</button>
+          </form>
+          <button id="demo-btn" class="button button-outline full" type="button">Preview website with demo photos</button>
+          <p id="auth-message" class="message" role="status"></p>
+          <p class="fine-print">Your account is protected by Amazon Cognito when connected. Demo preview does not use AWS.</p>
+        </div>
+      </section>
+      <section id="app-view" class="app-view hidden">
+        <div class="hero-row"><div><p class="eyebrow">YOUR PERSONAL LIBRARY</p><h1>Your moments<span class="dot">.</span></h1><p class="muted">A calm place for everything worth keeping.</p></div>
+          <label class="button button-primary upload-button">＋ Add photos<input id="file-input" type="file" accept="image/jpeg,image/png" multiple hidden></label>
+        </div>
+        <section class="toolbar">
+          <div class="search-wrap"><span>⌕</span><input id="search-input" type="search" placeholder="Search by filename or tag..."><button id="clear-search" aria-label="Clear search">×</button></div>
+          <div class="filter-label"><span class="status-dot"></span><span id="photo-count">Your library</span></div>
+        </section>
+        <div id="upload-status" class="upload-status hidden"></div>
+        <div id="gallery" class="gallery"></div>
+        <div id="empty-state" class="empty-state hidden"><div class="empty-icon">▧</div><h2>No photos yet</h2><p>Upload your first photo to start your collection.</p><label class="button button-outline">Choose photos<input type="file" accept="image/jpeg,image/png" multiple hidden id="empty-file-input"></label></div>
+        <div id="error-banner" class="error-banner hidden" role="alert"></div>
+      </section>
+    </main>
+    <footer><span>CLOUD FRAME</span><span>Private memories. Securely stored.</span></footer>
+  </div>
+  <div id="lightbox" class="lightbox hidden" role="dialog" aria-modal="true" aria-label="Photo viewer"><button id="close-lightbox" class="close-lightbox" aria-label="Close">×</button><button id="prev-photo" class="lightbox-nav prev" aria-label="Previous photo">‹</button><img id="lightbox-image" alt="Selected photo"><button id="next-photo" class="lightbox-nav next" aria-label="Next photo">›</button><div id="lightbox-caption" class="lightbox-caption"></div></div>
+  <div id="toast" class="toast" role="status"></div>
+</body></html>
