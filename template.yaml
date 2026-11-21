@@ -23,6 +23,12 @@ Parameters:
   AllowedOrigin:
     Type: String
     Default: "*"
+  # Member 2 (frontend)
+  EnableCloudFront:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Set to "true" once the AWS account is verified for CloudFront
   # Member 5 (security)
   EnableWaf:
     Type: String
@@ -34,6 +40,8 @@ Parameters:
     MinValue: 10
 
 Conditions:
+  # Member 2 (frontend)
+  CloudFrontEnabled: !Equals [!Ref EnableCloudFront, "true"]
   # Member 5 (security)
   TaggingEnabled: !Equals [!Ref EnableTagging, "true"]
   WafEnabled: !Equals [!Ref EnableWaf, "true"]
@@ -43,6 +51,72 @@ Resources:
   # Member 2: Frontend and content delivery
   #   S3 static hosting bucket for the web UI, CloudFront distribution with HTTPS
   # ------------------------------------------------------------------
+  WebUiBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AppName}-web-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+
+  WebUiDistribution:
+    Type: AWS::CloudFront::Distribution
+    Condition: CloudFrontEnabled
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        HttpVersion: http2
+        Origins:
+          - Id: WebUiS3Origin
+            DomainName: !GetAtt WebUiBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+            OriginAccessControlId: !GetAtt CloudFrontOAC.Id   # Member 5's OAC
+        DefaultCacheBehavior:
+          TargetOriginId: WebUiS3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          ResponseHeadersPolicyId: !Ref SecurityHeadersPolicy   # Member 5's security headers
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          ForwardedValues:
+            QueryString: false
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+
+  WebUiBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: CloudFrontEnabled
+    Properties:
+      Bucket: !Ref WebUiBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudFrontRead
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${WebUiBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${WebUiDistribution}"
+
 
   # ------------------------------------------------------------------
   # Member 3: Backend and API
@@ -704,3 +778,12 @@ Outputs:
   ApiWebAclArn:
     Condition: WafEnabled
     Value: !GetAtt ApiWebAcl.Arn
+  # Member 2 (frontend)
+  WebUiBucketName:
+    Value: !Ref WebUiBucket
+  WebUiDistributionId:
+    Condition: CloudFrontEnabled
+    Value: !Ref WebUiDistribution
+  WebUiUrl:
+    Condition: CloudFrontEnabled
+    Value: !Sub 'https://${WebUiDistribution.DomainName}'
