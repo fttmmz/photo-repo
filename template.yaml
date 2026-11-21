@@ -32,11 +32,20 @@ Parameters:
     Type: Number
     Default: 1000
     MinValue: 10
+  # Member 6 (monitoring)
+  AlertEmail:
+    Type: String
+    Default: ""
+    Description: Email that receives alarm alerts (empty = no email subscription)
+    AllowedPattern: '^$|^[^@\s<>"]+@[^@\s<>"]+\.[^@\s<>"]+$'
+    ConstraintDescription: must be a plain email address like name@example.com (no < > or quotes), or empty
 
 Conditions:
   # Member 5 (security)
   TaggingEnabled: !Equals [!Ref EnableTagging, "true"]
   WafEnabled: !Equals [!Ref EnableWaf, "true"]
+  # Member 6 (monitoring)
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, ""]]
 
 Resources:
   # ------------------------------------------------------------------
@@ -689,8 +698,105 @@ Resources:
   # Member 6: Monitoring, testing and cost
   #   CloudWatch logs, metrics, dashboard, alarms (Lambda errors, API 5xx), SNS alerts, billing alarm
   # ------------------------------------------------------------------
+  # Same setup Member 6 built in the console (see monitoring/README.md), pointed at this stack's
+  # real function and API names. The $5 monthly budget stays in the console: budgets are
+  # account-wide and CloudFormation cannot create AWS::Budgets::Budget in eu-north-1.
+  AlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "${AppName}-alerts"
+      DisplayName: Photo Repository alerts
+
+  AlertsEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      TopicArn: !Ref AlertsTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  ApiServerErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${AppName}-api-5xx-errors"
+      AlarmDescription: The photo API returned a 5XX (server) error
+      Namespace: AWS/ApiGateway
+      MetricName: 5XXError
+      Dimensions: [{Name: ApiName, Value: !Sub "${AppName}-api"}]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+
+  UploadErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${AppName}-upload-errors"
+      AlarmDescription: The upload-URL Lambda reported an error
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{Name: FunctionName, Value: !Ref UploadUrlFunction}]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+
+  MonitoringDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub "${AppName}-monitoring"
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {"type": "metric", "x": 0, "y": 0, "width": 8, "height": 6, "properties": {
+              "title": "Lambda Errors", "region": "${AWS::Region}", "view": "timeSeries", "stat": "Sum", "period": 300,
+              "metrics": [
+                ["AWS/Lambda", "Errors", "FunctionName", "${UploadUrlFunction}"],
+                ["AWS/Lambda", "Errors", "FunctionName", "${ListPhotosFunction}"],
+                ["AWS/Lambda", "Errors", "FunctionName", "${GetPhotoFunction}"],
+                ["AWS/Lambda", "Errors", "FunctionName", "${SearchPhotosFunction}"],
+                ["AWS/Lambda", "Errors", "FunctionName", "${DeletePhotoFunction}"],
+                ["AWS/Lambda", "Errors", "FunctionName", "${ResizeFunction}"]]}},
+            {"type": "metric", "x": 8, "y": 0, "width": 8, "height": 6, "properties": {
+              "title": "Lambda Invocations", "region": "${AWS::Region}", "view": "timeSeries", "stat": "Sum", "period": 300,
+              "metrics": [
+                ["AWS/Lambda", "Invocations", "FunctionName", "${UploadUrlFunction}"],
+                ["AWS/Lambda", "Invocations", "FunctionName", "${ListPhotosFunction}"],
+                ["AWS/Lambda", "Invocations", "FunctionName", "${GetPhotoFunction}"],
+                ["AWS/Lambda", "Invocations", "FunctionName", "${SearchPhotosFunction}"],
+                ["AWS/Lambda", "Invocations", "FunctionName", "${DeletePhotoFunction}"],
+                ["AWS/Lambda", "Invocations", "FunctionName", "${ResizeFunction}"]]}},
+            {"type": "metric", "x": 16, "y": 0, "width": 8, "height": 6, "properties": {
+              "title": "Lambda Duration (ms)", "region": "${AWS::Region}", "view": "timeSeries", "stat": "Average", "period": 300,
+              "metrics": [
+                ["AWS/Lambda", "Duration", "FunctionName", "${UploadUrlFunction}"],
+                ["AWS/Lambda", "Duration", "FunctionName", "${ListPhotosFunction}"],
+                ["AWS/Lambda", "Duration", "FunctionName", "${GetPhotoFunction}"],
+                ["AWS/Lambda", "Duration", "FunctionName", "${SearchPhotosFunction}"],
+                ["AWS/Lambda", "Duration", "FunctionName", "${DeletePhotoFunction}"],
+                ["AWS/Lambda", "Duration", "FunctionName", "${ResizeFunction}"]]}},
+            {"type": "metric", "x": 0, "y": 6, "width": 8, "height": 6, "properties": {
+              "title": "API 5XXError", "region": "${AWS::Region}", "view": "timeSeries", "stat": "Sum", "period": 300,
+              "metrics": [["AWS/ApiGateway", "5XXError", "ApiName", "${AppName}-api"]]}},
+            {"type": "metric", "x": 8, "y": 6, "width": 8, "height": 6, "properties": {
+              "title": "API 4XXError", "region": "${AWS::Region}", "view": "timeSeries", "stat": "Sum", "period": 300,
+              "metrics": [["AWS/ApiGateway", "4XXError", "ApiName", "${AppName}-api"]]}},
+            {"type": "metric", "x": 16, "y": 6, "width": 8, "height": 6, "properties": {
+              "title": "API Latency (ms)", "region": "${AWS::Region}", "view": "timeSeries", "stat": "Average", "period": 300,
+              "metrics": [["AWS/ApiGateway", "Latency", "ApiName", "${AppName}-api"]]}}
+          ]
+        }
 
 Outputs:
+  # Member 6 (monitoring)
+  AlertsTopicArn: {Value: !Ref AlertsTopic}
+  DashboardUrl: {Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards/dashboard/${AppName}-monitoring"}
   ThumbBucketName: {Value: !Ref ThumbBucket}
   ApiUrl: {Value: !Sub "https://${PhotoApi}.execute-api.${AWS::Region}.amazonaws.com/prod"}
   # Member 5 (security)
