@@ -31,8 +31,18 @@
 - Actual Result: Previous test returned HTTP 500.
 - Status: Failed – Retest after backend updates.
 
-## Test Case 6: Small Load Test
-- Test: Send multiple requests and measure response times.
-- Expected Result: Requests complete without server errors.
-- Status: Pending
+
+## Test Case 6: Small Local HTTP Test
+
+- Test: Send 10 sequential HTTP requests to the local website.
+- Expected Result: All requests return HTTP 200.
+- Actual Result: All 10 requests returned HTTP 200.
+- Successful Requests: 10/10.
+- Failed Requests: 0.
+- Average Response Time: 0.001619 seconds.
+- Status: Pass (Local Test).
+
+Note: This test checks the local frontend server only.
+AWS backend load testing is still pending.
+
 
